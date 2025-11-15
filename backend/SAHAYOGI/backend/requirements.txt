@@ -1,0 +1,9 @@
+fastapi[all]
+uvicorn[standard]
+pydantic-settings
+supabase
+python-dotenv
+google-generativeai
+langchain
+langchain-community
+psycopg2-binary
