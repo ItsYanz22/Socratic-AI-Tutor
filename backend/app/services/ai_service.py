@@ -11,7 +11,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 # Configure the Gemini client
 try:
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
 except Exception as e:
     print(f"Error configuring Gemini: {e}")
     model = None
