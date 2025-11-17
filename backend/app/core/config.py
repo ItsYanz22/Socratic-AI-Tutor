@@ -3,10 +3,12 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_JWT_SECRET: str
+    GEMINI_API_KEY: str
+    SUPABASE_ANON_KEY: str
+    SUPABASE_SERVICE_ROLE_KEY: str
+
 
     class Config:
-        # This tells pydantic to read from the .env file
         env_file = ".env"
 
-# Create a single, reusable instance
 settings = Settings()

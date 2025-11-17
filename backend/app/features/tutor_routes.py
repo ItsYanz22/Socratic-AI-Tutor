@@ -1,20 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.models.schemas import TutorRequest, TutorResponse
+from app.auth.dependencies import get_current_user
+from app.services.ai_service import get_socratic_response  # <-- Import our new service
 
-# Create a "router" for this feature
 router = APIRouter(
-    prefix="/tutor",  # All routes here will start with /tutor
-    tags=["Socratic Tutor"]  # This creates a nice tag in the /docs
+    prefix="/tutor",
+    tags=["Socratic Tutor"]
 )
 
 
 @router.post("/ask", response_model=TutorResponse)
-async def ask_tutor(request: TutorRequest):
-    # This is the "Socratic Wrapper" MVP.
-    # It's not smart yet, but it proves the API works.
+async def ask_tutor(request: TutorRequest): #, user = Depends(get_current_user)):
+    # Now we call the real AI
+    ai_response = await get_socratic_response(request.prompt)
 
-    # TODO: Add real call to ai_service.py in the next step
-
-    socratic_response = f"This is a Socratic response to: '{request.prompt}'"
-
-    return TutorResponse(response=socratic_response)
+    return TutorResponse(response=ai_response)
