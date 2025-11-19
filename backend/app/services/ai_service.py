@@ -1,55 +1,40 @@
 import google.generativeai as genai
 from app.core.config import settings
 from supabase import create_client, Client
-
-# --- NEW IMPORTS ---
-from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # --- 1. CONFIGURE CLIENTS ---
 
-# Configure the Gemini client
+# Configure Gemini
 try:
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    model = genai.GenerativeModel('models/gemini-2.0-flash')
 except Exception as e:
     print(f"Error configuring Gemini: {e}")
     model = None
 
-# Configure free, local embeddings (must match ingest.py)
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-model_kwargs = {'device': 'cpu'}  # Use CPU
+# Configure Embeddings (CPU)
 embeddings = HuggingFaceEmbeddings(
-    model_name=model_name,
-    model_kwargs=model_kwargs
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={'device': 'cpu'}
 )
 
-# Configure Supabase client (this one can be public for read-only search)
+# Configure Supabase
 supabase_client: Client = create_client(
     settings.SUPABASE_URL,
-    settings.SUPABASE_ANON_KEY  # Use the ANON key for public read access
+    settings.SUPABASE_ANON_KEY
 )
 
-# Configure the Vector Store (for *retrieving* data)
-vector_store = SupabaseVectorStore(
-    client=supabase_client,
-    table_name="documents",  # Must match your ingest.py table
-    query_name="match_documents",  # Must match your ingest.py query
-    embedding=embeddings
-)
-
-# --- 2. THE "SOUL" OF OUR AI (UPGRADED) ---
+# --- 2. THE SYSTEM PROMPT ---
 SYSTEM_PROMPT = """
 You are 'Sahayogi,' a world-class Socratic AI Tutor for cybersecurity.
-Your one and only goal is to help a student solve a problem *without ever giving them the answer*.
-You must *only* respond with guiding questions.
-
-RULES:
-1.  **DO NOT** write code.
-2.  **DO NOT** give direct, declarative answers.
-3.  **ONLY** ask one or two guiding, open-ended questions in response.
-4.  You *must* use the [PROVIDED CONTEXT] to inform your questions.
-5.  If the context mentions 'scapy' or 'rdpcap', guide them towards it.
+Your goal is to help a student solve a problem *without* giving the answer.
+Rules:
+1. DO NOT write code.
+2. DO NOT give direct answers.
+3. ONLY ask guiding questions.
+4. Use the [PROVIDED CONTEXT] if relevant.
+5. If the context mentions 'scapy' or 'rdpcap', guide them towards it.
 ---
 [PROVIDED CONTEXT]:
 {context}
@@ -61,38 +46,50 @@ RULES:
 {question}
 """
 
-# --- 3. THE "RAG" ENABLED FUNCTION ---
+
+# --- 3. THE "DIRECT RAG" FUNCTION ---
 async def get_socratic_response(prompt: str, chat_history: list = []):
     if not model:
-        return "AI model is not configured. Please check API key."
+        return "AI model is not configured."
 
     try:
-        # --- THIS IS THE "R" (Retrieve) ---
-        # First, retrieve relevant documents from our vector store
-        print(f"RAG: Searching for context for: {prompt}")
-        retriever = vector_store.as_retriever()
-        relevant_docs = await retriever.ainvoke(prompt)
+        # STEP A: Generate the Embedding Manually
+        # We turn the user's question into numbers
+        query_vector = embeddings.embed_query(prompt)
 
-        # Format the context
-        context = "\n---\n".join([doc.page_content for doc in relevant_docs])
-        if not context:
-            context = "No specific context found. Use general knowledge."
+        # STEP B: Call Supabase Directly (The "Bypass")
+        # We skip LangChain's buggy wrapper and talk straight to the DB
+        # This calls the 'match_documents' SQL function we created
+        rpc_response = supabase_client.rpc(
+            "match_documents",
+            {
+                "query_embedding": query_vector,
+                "match_count": 5,  # Get top 5 results
+                "filter": {}
+            }
+        ).execute()
 
-        # Format the history (This is Phase 3, so we implement it)
+        # Format the results
+        relevant_docs = rpc_response.data
+        context = ""
+        if relevant_docs:
+            context = "\n---\n".join([doc['content'] for doc in relevant_docs])
+        else:
+            context = "No specific documentation found. Use general knowledge."
+
+        # STEP C: Format History
         history_str = "\n".join([f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in chat_history])
 
-        # --- THIS IS THE "A" (Augment) ---
-        # Now, build the full prompt
+        # STEP D: Generate Response
         full_prompt = SYSTEM_PROMPT.format(
             context=context,
             history=history_str,
             question=prompt
         )
 
-        # --- THIS IS THE "G" (Generate) ---
         response = await model.generate_content_async(full_prompt)
-        print("RAG: Socratic response generated.")
         return response.text
+
     except Exception as e:
         print(f"Error in get_socratic_response: {e}")
         return f"Error connecting to AI model: {e}"
