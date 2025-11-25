@@ -43,7 +43,7 @@ export default function LoginPage() {
   // --- END OF FINALIZED FUNCTION ---
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
+    <div className="flex flex-col items-center justify-center min-h-screen" suppressHydrationWarning>
       <div className="w-full max-w-md p-8 space-y-6">
         <h1 className="text-3xl font-bold text-center">Login to Sahayogi</h1>
         <div className="space-y-4">
