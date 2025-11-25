@@ -1,44 +1,43 @@
-import sys
 import os
+import sys
+
+# Add backend to path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_huggingface import HuggingFaceEmbeddings
+# CORRECT IMPORT: Use the new Endpoint class
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from supabase import create_client, Client
-from app.core.config import settings  # We'll reuse our config
+from app.core.config import settings
 
-# --- 1. CONFIGURE CLIENTS ---
-# We need an admin client to write to the DB
 supabase_admin_client: Client = create_client(
     settings.SUPABASE_URL,
     settings.SUPABASE_SERVICE_ROLE_KEY
 )
 
-# --- THIS IS THE NEW CODE ---
-# We are using a free, local model. It will download it the first time.
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-model_kwargs = {'device': 'cpu'} # Use CPU
-embeddings = HuggingFaceEmbeddings(
-    model_name=model_name,
-    model_kwargs=model_kwargs
+# NEW CONFIGURATION:
+# - Use 'model' instead of 'model_name'
+# - Use 'huggingfacehub_api_token' instead of 'api_key'
+embeddings = HuggingFaceEndpointEmbeddings(
+    model="sentence-transformers/all-MiniLM-L6-v2",
+    task="feature-extraction",
+    huggingfacehub_api_token=settings.HUGGINGFACEHUB_API_TOKEN,
 )
-# --- END OF NEW CODE ---
 
-# Configure the Supabase Vector Store
 vector_store = SupabaseVectorStore(
     client=supabase_admin_client,
-    table_name="documents",  # This table will be created for you
+    table_name="documents",
     query_name="match_documents",
     embedding=embeddings
 )
 
 
 def run_ingestion():
-    print("Starting document ingestion...")
-    doc_directory = './docs'  # The folder with your PDFs
+    print("Starting document ingestion with Hugging Face Cloud...")
+    doc_directory = './docs'
 
-    # --- 2. LOAD & SPLIT DOCUMENTS ---
     try:
         raw_docs = []
         for filename in os.listdir(doc_directory):
@@ -48,7 +47,7 @@ def run_ingestion():
                 raw_docs.extend(loader.load())
 
         if not raw_docs:
-            print("No PDF documents found in /docs folder.")
+            print("No PDF documents found.")
             return
 
         text_splitter = RecursiveCharacterTextSplitter(
@@ -56,16 +55,15 @@ def run_ingestion():
             chunk_overlap=200
         )
         docs = text_splitter.split_documents(raw_docs)
-        print(f"Loaded and split {len(docs)} document chunks.")
+        print(f"\nLoaded {len(docs)} chunks. Uploading to Supabase...")
 
-        # --- 3. ADD TO VECTOR STORE ---
+        # Batch upload
         vector_store.add_documents(docs)
-        print("Successfully added documents to Supabase vector store.")
+        print("\nSuccess! All documents uploaded using HF Cloud.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":
-    # This makes the script runnable from the command line
     run_ingestion()
